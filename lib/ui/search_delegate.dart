@@ -76,7 +76,7 @@ class EntitySearchDelegate extends SearchDelegate<String?> {
           itemBuilder: (context, i) {
             final item = items[i];
             final type = item['type'] as String? ?? '未分类';
-            final color = AppColors.typeColor(type);
+            final color = AppColors.colorFor(item['name'] as String? ?? '', type);
             return ListTile(
               leading: Container(
                 width: 8,

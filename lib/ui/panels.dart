@@ -475,7 +475,7 @@ class _ConfirmPanelState extends State<ConfirmPanel> {
   }
 
   Widget _entityChip(String name, String type) {
-    final color = AppColors.typeColor(type);
+    final color = AppColors.colorFor(name, type);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
@@ -633,7 +633,7 @@ class EntityPanel extends StatelessWidget {
       return BottomPanel(child: const Text('实体不存在'));
     }
     final type = entity['type'] as String? ?? EntityTypes.unknown;
-    final color = AppColors.typeColor(type);
+    final color = AppColors.colorFor(entity['name'] as String? ?? '', type);
 
     return BottomPanel(
       accent: color,

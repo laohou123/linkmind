@@ -52,6 +52,31 @@
     "未分类": "#6B7A99"
   };
 
+  // 先按设备名里的关键词归类，命中就给对应颜色；命中不了再退回按类型取色。
+  // 「摄像头」没有独立类型，模型每次猜的类型不同，颜色就会乱跳；
+  // 按名字归类后，只要名字里带「摄像头」，颜色就固定。
+  // 规则按「本质」排序：更具体的类放前面（「监控交换机」应归网络设备而非摄像头）。
+  function nameColor(label, type) {
+    var n = (label || "").toLowerCase();
+    var rules = [
+      [["光纤", "光缆", "网线", "跳线", "尾纤", "电缆", "线缆"], "#9254DE"],
+      [["交换机", "路由器", "防火墙", "收发器", "光端机", "无线ap"], "#36CFC9"],
+      [["录像机", "nvr", "dvr", "硬盘录像机"], "#36CFC9"],
+      [["配电", "电源", "ups", "变压器", "开关柜", "断路器"], "#FF7A45"],
+      [["服务器", "工控机", "主机", "电脑"], "#4C8DFF"],
+      [["摄像头", "摄像机", "球机", "枪机", "半球", "云台", "相机", "ipc", "camera"], "#7C4DFF"],
+      [["端口", "接口"], "#8B9DC3"],
+      [["弱电井", "机房", "机柜", "楼层", "区域", "配电室"], "#5B8FF9"]
+    ];
+    for (var i = 0; i < rules.length; i++) {
+      var kws = rules[i][0], col = rules[i][1];
+      for (var j = 0; j < kws.length; j++) {
+        if (n.indexOf(kws[j]) >= 0) return col;
+      }
+    }
+    return TYPE_COLOR[type] || TYPE_COLOR["未分类"];
+  }
+
   var cy = cytoscape({
     container: document.getElementById("cy"),
     elements: [],
@@ -351,7 +376,7 @@
       });
 
       var nodes = rawNodes.map(function (n) {
-        var col = TYPE_COLOR[n.type] || TYPE_COLOR["未分类"];
+        var col = nameColor(n.label, n.type);
         var deg = degree[n.id] || 0;
         var size = Math.max(14, Math.min(38, 14 + deg * 4.5));
         var el = {

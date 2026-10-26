@@ -123,6 +123,17 @@ class TextMatch {
       if (shorter.length >= 3) return base > 0.80 ? base : 0.80;
     }
 
+    // 公共前缀兜底：
+    // 「湿矿电源」和「湿矿平台设备箱」既不是包含也不是子序列（"电源"是关系
+    // 干扰词），但去掉编号后都以「湿矿」开头，指的还是同一台设备。
+    // 给一个能进候选、但不足以自动合并的分（0.60~0.80）。
+    final prefixLen = _commonPrefixLen(restA, restB);
+    if (prefixLen >= 2) {
+      final minLen = restA.length < restB.length ? restA.length : restB.length;
+      final prefScore = 0.60 + 0.20 * (prefixLen / minLen);
+      if (prefScore > base) return prefScore;
+    }
+
     final overlap = _jaccard(_bigrams(restA), _bigrams(restB));
     if (overlap < 0.22) return base;      // 核心词几乎不重合，当作不同设备
     final boosted = 0.62 + 0.25 * overlap;
@@ -155,6 +166,17 @@ class TextMatch {
     }
     if (buf.isNotEmpty) out.add(buf.toString());
     return out;
+  }
+
+
+  /// 两个字符串从开头连续相同的字符数
+  static int _commonPrefixLen(String a, String b) {
+    final n = a.length < b.length ? a.length : b.length;
+    var i = 0;
+    while (i < n && a[i] == b[i]) {
+      i++;
+    }
+    return i;
   }
 
   /// a 的字符是否按顺序全部出现在 b 里

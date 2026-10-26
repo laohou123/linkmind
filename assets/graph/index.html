@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<title>关系图谱</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%; width: 100%;
+    background: #070B12; overflow: hidden;
+    -webkit-tap-highlight-color: transparent;
+    font-family: -apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif;
+  }
+  /* 背景径向光晕，让深色画面不那么死板 */
+  #cy {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(1100px 700px at 50% 42%, rgba(40, 82, 140, 0.18), rgba(7, 11, 18, 0) 70%),
+      radial-gradient(700px 500px at 82% 88%, rgba(120, 60, 160, 0.10), rgba(7, 11, 18, 0) 70%),
+      #070B12;
+  }
+  /* 极淡网格，增加"空间感" */
+  #cy::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(120, 170, 255, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(120, 170, 255, 0.03) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+  #hint {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    color: #46618A; font-size: 13px; letter-spacing: .5px; text-align: center;
+    line-height: 2; pointer-events: none; transition: opacity .4s;
+  }
+  #hint b { display: block; color: #6C8AB8; font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<div id="cy"></div>
+<div id="hint"><b>还没有任何关系</b>在下方输入框记一句试试</div>
+
+<script src="cytoscape.min.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  // 实体类型 → 颜色（与 App 内保持一致）
+  var TYPE_COLOR = {
+    "设备": "#4C8DFF", "电气设备": "#FFB020", "配电柜": "#FF7A45",
+    "电源": "#F759AB", "设备箱": "#13C2C2", "网络设备": "#36CFC9",
+    "线缆": "#9254DE", "端口": "#8B9DC3", "区域": "#5B8FF9",
+    "未分类": "#6B7A99"
+  };
+
+  var cy = cytoscape({
+    container: document.getElementById("cy"),
+    elements: [],
+    // 初始不做自动布局，由 setData 决定
+    layout: { name: "preset" },
+    minZoom: 0.15,
+    maxZoom: 3.2,
+    wheelSensitivity: 0.15,
+    boxSelectionEnabled: false,
+    selectionType: "single",
+    style: [
+      {
+        // 节点：半透明圆点，名字挂在圆点下方
+        selector: "node",
+        style: {
+          "shape": "ellipse",
+          "width": "data(size)",
+          "height": "data(size)",
+          "background-color": "data(color)",
+          "background-opacity": 0.40,
+          "border-width": 1,
+          "border-color": "data(color)",
+          "border-opacity": 0.85,
+          "label": "data(label)",
+          "color": "#9FB5D0",
+          "font-size": 10,
+          "font-weight": 400,
+          "text-valign": "bottom",
+          "text-halign": "center",
+          "text-margin-y": 6,
+          "text-wrap": "wrap",
+          "text-max-width": "104px",
+          "text-outline-width": 2.5,
+          "text-outline-color": "#070B12",
+          "text-outline-opacity": 0.9,
+          "overlay-opacity": 0,
+          "transition-property": "background-opacity, border-width, opacity, color, font-size",
+          "transition-duration": "180ms"
+        }
+      },
+      // 待确认：虚线圈
+      {
+        selector: "node[status = 'proposed']",
+        style: { "border-style": "dashed", "background-opacity": 0.22 }
+      },
+      // 选中 / 命中：实心一点 + 外发光 + 名字提亮
+      {
+        selector: "node.hl",
+        style: {
+          "background-opacity": 0.92,
+          "border-width": 1.4,
+          "underlay-color": "data(color)",
+          "underlay-opacity": 0.30,
+          "underlay-padding": 9,
+          "underlay-shape": "ellipse",
+          "color": "#EAF2FD",
+          "font-size": 11,
+          "z-index": 20
+        }
+      },
+      {
+        selector: "node.sel",
+        style: {
+          "background-opacity": 1,
+          "border-width": 2,
+          "border-color": "#FFFFFF",
+          "underlay-opacity": 0.42,
+          "underlay-padding": 12,
+          "underlay-shape": "ellipse"
+        }
+      },
+      { selector: "node.dim", style: { "opacity": 0.16 } },
+
+      {
+        // 边：平时很淡，点到之后才亮起来并显示关系文字
+        selector: "edge",
+        style: {
+          "width": 1,
+          "line-color": "#2A4160",
+          "target-arrow-color": "#2A4160",
+          "target-arrow-shape": "triangle",
+          "arrow-scale": 0.55,
+          "curve-style": "bezier",
+          "control-point-step-size": 34,
+          "label": "data(label)",
+          "font-size": 9.5,
+          "color": "#7E97BA",
+          "text-opacity": 0,
+          "text-rotation": "none",
+          "text-margin-y": -7,
+          "text-background-color": "#0A1220",
+          "text-background-opacity": 0.9,
+          "text-background-padding": "3px",
+          "text-background-shape": "roundrectangle",
+          "overlay-opacity": 0,
+          "transition-property": "line-color, width, opacity",
+          "transition-duration": "180ms"
+        }
+      },
+      { selector: "edge[status = 'proposed']", style: { "line-style": "dashed", "line-color": "#4C5C73" } },
+      {
+        selector: "edge.hl",
+        style: {
+          "width": 1.8, "line-color": "#3E7FB8", "target-arrow-color": "#3E7FB8",
+          "color": "#B9D2EA", "text-opacity": 1, "z-index": 15
+        }
+      },
+      { selector: "edge.dim", style: { "opacity": 0.10 } }
+    ]
+  });
+
+  var hintEl = document.getElementById("hint");
+  var knownPos = {};     // id -> {x, y}：用户拖动后的落点，跨刷新保持
+  var hasLaidOut = false;
+  var draggingId = null;
+
+  function post(obj) {
+    try {
+      var msg = JSON.stringify(obj);
+      if (window.AndroidBridge && window.AndroidBridge.postMessage) {
+        window.AndroidBridge.postMessage(msg);     // Flutter webview_flutter
+      } else if (window.AndroidNative && window.AndroidNative.onEvent) {
+        window.AndroidNative.onEvent(msg);         // 原生 WebView
+      }
+    } catch (e) { /* 桥接不可用时静默，不影响画图 */ }
+  }
+
+  // 把新节点放在邻居周围，避免全图重排
+  function placeNearNeighbors(nodes, edges) {
+    var placed = {};
+    nodes.forEach(function (n) { if (n.position) placed[n.id] = true; });
+
+    var adjacency = {};
+    edges.forEach(function (e) {
+      (adjacency[e.data.source] = adjacency[e.data.source] || []).push(e.data.target);
+      (adjacency[e.data.target] = adjacency[e.data.target] || []).push(e.data.source);
+    });
+
+    nodes.forEach(function (n) {
+      if (n.position) return;
+      var anchors = (adjacency[n.id] || []).filter(function (id) { return placed[id]; });
+      if (anchors.length > 0) {
+        var base = cy.getElementById(anchors[0]).position();
+        var angle = (Object.keys(placed).length * 2.399963) % (Math.PI * 2); // 黄金角散布
+        n.position = { x: base.x + Math.cos(angle) * 150, y: base.y + Math.sin(angle) * 150 };
+      }
+      placed[n.id] = true;
+    });
+  }
+
+  // 轻量松弛：只微调，不做全局布局，保证视觉稳定
+  function relax(iterations) {
+    var nodes = cy.nodes();
+    var edges = cy.edges();
+    var ideal = 104;
+    for (var it = 0; it < iterations; it++) {
+      var disp = {};
+      nodes.forEach(function (n) { disp[n.id()] = { x: 0, y: 0 }; });
+
+      nodes.forEach(function (a) {
+        nodes.forEach(function (b) {
+          if (a.id() >= b.id()) return;
+          var pa = a.position(), pb = b.position();
+          var dx = pa.x - pb.x, dy = pa.y - pb.y;
+          var d2 = dx * dx + dy * dy;
+          if (d2 < 1) { d2 = 1; dx = Math.random() - 0.5; dy = Math.random() - 0.5; }
+          var d = Math.sqrt(d2);
+          if (d < ideal) {
+            var f = (ideal - d) / d * 0.06;
+            disp[a.id()].x += dx * f; disp[a.id()].y += dy * f;
+            disp[b.id()].x -= dx * f; disp[b.id()].y -= dy * f;
+          }
+        });
+      });
+      edges.forEach(function (e) {
+        var s = e.source(), t = e.target();
+        var dx = t.position().x - s.position().x;
+        var dy = t.position().y - s.position().y;
+        var d = Math.sqrt(dx * dx + dy * dy) || 1;
+        var f = (d - ideal * 1.3) / d * 0.035;
+        disp[s.id()].x += dx * f; disp[s.id()].y += dy * f;
+        disp[t.id()].x -= dx * f; disp[t.id()].y -= dy * f;
+      });
+      nodes.forEach(function (n) {
+        var p = n.position(), dd = disp[n.id()];
+        n.position({ x: p.x + Math.max(-14, Math.min(14, dd.x)), y: p.y + Math.max(-14, Math.min(14, dd.y)) });
+      });
+    }
+  }
+
+  // ---------------------------------------------------------------- 漂浮
+
+  // 只记录"基准位置"，每帧在基准附近做很小的正弦位移。
+  // 这样整张图会缓慢呼吸，但结构关系不变，也不会互相越飘越远。
+  function resetDriftBase() {
+    cy.nodes().forEach(function (n) {
+      var p = n.position();
+      n.data("bx", p.x);
+      n.data("by", p.y);
+      if (n.data("ph") == null) {
+        n.data("ph", Math.random() * Math.PI * 2);
+        n.data("sp", 0.00018 + Math.random() * 0.00014);   // 周期约 25~45 秒
+        n.data("am", 2.5 + Math.random() * 3.5);            // 振幅 2.5~6 px
+      }
+    });
+  }
+
+  var lastFrame = 0;
+  function driftTick(t) {
+    requestAnimationFrame(driftTick);
+    if (t - lastFrame < 33) return;      // ~30fps，省电
+    lastFrame = t;
+    var nodes = cy.nodes();
+    if (nodes.length === 0 || nodes.length > 240) return;
+    if (document.hidden) return;
+    nodes.forEach(function (n) {
+      if (n.id() === draggingId) return;
+      var bx = n.data("bx");
+      if (bx == null) return;
+      var by = n.data("by"), ph = n.data("ph") || 0, sp = n.data("sp") || 0.0002, am = n.data("am") || 3;
+      n.position({
+        x: bx + Math.sin(t * sp + ph) * am,
+        y: by + Math.cos(t * sp * 0.83 + ph * 1.7) * am
+      });
+    });
+  }
+  requestAnimationFrame(driftTick);
+
+  // ---------------------------------------------------------------- 高亮
+
+  // 自适应。
+  // 注意：cytoscape 的 cy.fit() 只按节点本体算边界，不含下方文字，
+  // 直接用会把标签挤到屏幕外，所以这里自己按「含标签」的边界算缩放和平移。
+  function fitNice(eles, padding, minZoom) {
+    var target = (eles && eles.length > 0) ? eles : cy.elements();
+    if (target.length === 0) return;
+    cy.resize();
+    var bb = target.boundingBox({ includeLabels: true, includeOverlays: false });
+    var vw = cy.width() - padding * 2;
+    var vh = cy.height() - padding * 2;
+    var z = Math.min(vw / Math.max(bb.w, 1), vh / Math.max(bb.h, 1));
+    z = Math.max(minZoom, Math.min(z, 2.2));
+    cy.zoom(z);
+    var cx = (bb.x1 + bb.x2) / 2;
+    var cyMid = (bb.y1 + bb.y2) / 2;
+    cy.pan({ x: cy.width() / 2 - cx * z, y: cy.height() / 2 - cyMid * z });
+  }
+
+  function applySelection(sel, fit, primaryId) {
+    cy.elements().removeClass("hl dim sel");
+    if (!sel || sel.length === 0) return;
+    cy.elements().difference(sel).addClass("dim");
+    sel.addClass("hl");
+    // 只有"被点的那一个"带白圈，其余发光即可，否则满屏白圈看不出重点
+    if (primaryId) {
+      var primary = cy.getElementById(primaryId);
+      if (primary && !primary.empty()) primary.addClass("sel");
+    }
+    if (fit) {
+      cy.animate({
+        fit: { eles: sel, padding: 110 },
+        duration: 320,
+        complete: function () { fitNice(sel, 80, 0.62); }
+      });
+    }
+  }
+
+  // 点一个点：把它和周围两跳的链路一起点亮
+  function highlightChain(id, depth) {
+    var start = cy.getElementById(id);
+    if (!start || start.empty()) return;
+    var sel = cy.collection().union(start);
+    var frontier = cy.collection().union(start);
+    for (var d = 0; d < depth; d++) {
+      var next = cy.collection();
+      frontier.forEach(function (el) {
+        next = next.union(el.neighborhood());
+      });
+      sel = sel.union(next);
+      frontier = next.nodes();
+      if (frontier.length === 0) break;
+    }
+    applySelection(sel, false, id);
+  }
+
+  window.GraphAPI = {
+    // data: {nodes:[{id,label,type,status,x,y}], edges:[{id,source,target,label,status}]}
+    setData: function (data) {
+      var rawNodes = data.nodes || [];
+      var rawEdges = data.edges || [];
+
+      // 度数：连得越多，圆点越大
+      var degree = {};
+      rawEdges.forEach(function (e) {
+        degree[e.source] = (degree[e.source] || 0) + 1;
+        degree[e.target] = (degree[e.target] || 0) + 1;
+      });
+
+      var nodes = rawNodes.map(function (n) {
+        var col = TYPE_COLOR[n.type] || TYPE_COLOR["未分类"];
+        var deg = degree[n.id] || 0;
+        var size = Math.max(14, Math.min(38, 14 + deg * 4.5));
+        var el = {
+          group: "nodes",
+          data: {
+            id: n.id, label: n.label, type: n.type, status: n.status || "confirmed",
+            color: col, size: Math.round(size), degree: deg
+          }
+        };
+        if (n.x != null && n.y != null) { el.position = { x: n.x, y: n.y }; knownPos[n.id] = el.position; }
+        else if (knownPos[n.id]) { el.position = knownPos[n.id]; }
+        return el;
+      });
+
+      var edges = rawEdges.map(function (e) {
+        return {
+          group: "edges",
+          data: { id: e.id, source: e.source, target: e.target, label: e.label, status: e.status || "confirmed" }
+        };
+      });
+
+      var firstLoad = !hasLaidOut;
+
+      cy.elements().remove();
+      placeNearNeighbors(nodes, edges);
+      cy.add(nodes.concat(edges));
+
+      if (nodes.length === 0) {
+        hintEl.style.display = "block";
+        hintEl.style.opacity = 1;
+      } else {
+        hintEl.style.opacity = 0;
+        hintEl.style.display = "none";
+        if (firstLoad) {
+          var lay = cy.layout({
+            name: "cose", animate: false, randomize: true, fit: true, padding: 70,
+            nodeRepulsion: 9000, idealEdgeLength: 70, edgeElasticity: 90,
+            gravity: 0.6, numIter: 700, componentSpacing: 70
+          });
+          lay.run();
+          hasLaidOut = true;
+          relax(18);
+          fitNice(undefined, 40, 0.6);
+        } else {
+          relax(10);
+        }
+        cacheAllPositions();
+        resetDriftBase();
+        // 首次渲染后画布尺寸可能还没稳定，补一次 resize + 自适应，避免标签被切在屏幕外
+        setTimeout(function () {
+          fitNice(undefined, 46, 0.6);
+          resetDriftBase();
+        }, 80);
+      }
+    },
+
+    focus: function (id) {
+      var n = cy.getElementById(id);
+      if (!n || n.empty()) return;
+      cy.animate({
+        center: { eles: n }, zoom: Math.max(cy.zoom(), 0.85), duration: 320
+      });
+      highlightChain(id, 1);
+    },
+
+    // 高亮一组节点/边（传 ID 数组），其余变暗
+    // 点亮一条边时自动把两端节点一起拉进来，避免"线亮了、点还暗着"
+    highlight: function (ids) {
+      if (!ids || ids.length === 0) {
+        cy.elements().removeClass("hl dim sel");
+        return;
+      }
+      var sel = cy.collection();
+      ids.forEach(function (id) {
+        var el = cy.getElementById(id);
+        if (!el || el.empty()) return;
+        sel = sel.union(el);
+        if (el.isEdge()) sel = sel.union(el.connectedNodes());
+      });
+      applySelection(sel, true);
+    },
+
+    clearHighlight: function () {
+      cy.elements().removeClass("hl dim sel");
+    },
+
+    // 以某个节点为中心点亮两跳链路（详情面板打开时也能用）
+    chain: function (id, depth) {
+      highlightChain(id, depth || 2);
+    },
+
+    fitAll: function () {
+      fitNice(cy.elements(), 70, 0.7);
+    },
+
+    filterTypes: function (types) {
+      if (!types || types.length === 0) {
+        cy.elements().style("display", "element");
+        return;
+      }
+      cy.nodes().forEach(function (n) {
+        n.style("display", types.indexOf(n.data("type")) >= 0 ? "element" : "none");
+      });
+      cy.edges().forEach(function (e) {
+        var ok = e.source().style("display") !== "none" && e.target().style("display") !== "none";
+        e.style("display", ok ? "element" : "none");
+      });
+    }
+  };
+
+  // 调试用：把画布与边界情况暴露出来，方便排查自适应问题
+  window.__diag = function () {
+    var bb = cy.elements().boundingBox({ includeLabels: true, includeOverlays: false });
+    return { zoom: cy.zoom(), w: cy.width(), h: cy.height(),
+             bb: { x1: Math.round(bb.x1), x2: Math.round(bb.x2), w: Math.round(bb.w), h: Math.round(bb.h) } };
+  };
+
+  function cacheAllPositions() {
+    var out = [];
+    cy.nodes().forEach(function (n) {
+      var p = n.position();
+      knownPos[n.id()] = p;
+      out.push({ id: n.id(), x: Math.round(p.x), y: Math.round(p.y) });
+    });
+    post({ type: "positions", positions: out });
+    post({ type: "nodeCount", count: cy.nodes().length });
+  }
+
+  // ---- 交互事件 ----
+
+  cy.on("tap", "node", function (evt) {
+    var id = evt.target.id();
+    highlightChain(id, 2);
+    post({ type: "tapNode", id: id });
+  });
+
+  cy.on("tap", "edge", function (evt) {
+    var sel = cy.collection().union(evt.target).union(evt.target.connectedNodes());
+    applySelection(sel, false, null);
+    post({ type: "tapEdge", id: evt.target.id() });
+  });
+
+  cy.on("tap", function (evt) {
+    if (evt.target === cy) {
+      cy.elements().removeClass("hl dim sel");
+      post({ type: "tapBlank" });
+    }
+  });
+
+  // 拖动时暂停这一颗的漂浮，松手后把落点记成新的基准
+  cy.on("grab", "node", function (evt) { draggingId = evt.target.id(); });
+  cy.on("free", "node", function (evt) {
+    var n = evt.target;
+    n.data("bx", n.position().x);
+    n.data("by", n.position().y);
+    draggingId = null;
+    cacheAllPositions();
+  });
+
+  window.addEventListener("resize", function () {
+    fitNice(undefined, 46, 0.6);
+    resetDriftBase();
+  });
+
+  post({ type: "ready" });
+})();
+</script>
+</body>
+</html>

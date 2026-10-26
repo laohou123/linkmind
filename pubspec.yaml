@@ -1,0 +1,53 @@
+name: relation_graph
+description: 用一句话记录设备关系，用图谱回答问题。
+publish_to: "none"
+version: 1.13.1+31
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # 本地数据库
+  sqflite: ^2.3.3
+  path: ^1.9.0
+
+  # 网络（OpenAI 兼容接口）
+  http: ^1.2.2
+
+  # 图谱渲染（本地 WebView + Cytoscape.js）
+  webview_flutter: ^4.8.0
+  webview_flutter_android: ^3.16.0
+
+  # 备份文件：导出用分享面板，导入用系统文件选择器
+  # 打开外部链接（检查更新、下载新版本）
+  url_launcher: ^6.3.0
+
+  # 官方文件选择器（Android 走 SAF，不需要存储权限）
+  file_selector: ^1.0.3
+  share_plus: ^10.0.0
+
+  # 配置存储
+  shared_preferences: ^2.3.2
+  flutter_secure_storage: ^9.2.2
+
+  # 语音：录音 → ASR，TTS → 播放
+  record: ^6.1.2
+  audioplayers: ^6.0.0
+  path_provider: ^2.1.4
+  # 本地语音：直接调用系统 TextToSpeech / AVSpeechSynthesizer
+  flutter_tts: ^4.2.0
+  # 系统语音识别：调 Android SpeechRecognizer / iOS SFSpeechRecognizer
+  speech_to_text: ^7.0.0
+  # 离线语音识别引擎（模型按需下载，不打进包）
+  sherpa_onnx: ^1.12.0
+  # 解压下载的模型包
+  archive: ^3.6.1
+
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/graph/

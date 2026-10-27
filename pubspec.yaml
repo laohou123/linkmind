@@ -1,7 +1,7 @@
 name: relation_graph
 description: 用一句话记录设备关系，用图谱回答问题。
 publish_to: "none"
-version: 1.13.3+33
+version: 1.13.5+35
 
 environment:
   sdk: ">=3.4.0 <4.0.0"

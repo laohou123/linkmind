@@ -63,6 +63,7 @@
       [["交换机", "路由器", "防火墙", "收发器", "光端机", "无线ap"], "#36CFC9"],
       [["录像机", "nvr", "dvr", "硬盘录像机"], "#36CFC9"],
       [["配电", "电源", "ups", "变压器", "开关柜", "断路器"], "#FF7A45"],
+      [["设备箱", "控制箱", "接线箱", "端子箱", "弱电箱"], "#13C2C2"],
       [["服务器", "工控机", "主机", "电脑"], "#4C8DFF"],
       [["摄像头", "摄像机", "球机", "枪机", "半球", "云台", "相机", "ipc", "camera"], "#7C4DFF"],
       [["端口", "接口"], "#8B9DC3"],
@@ -75,6 +76,15 @@
       }
     }
     return TYPE_COLOR[type] || TYPE_COLOR["未分类"];
+  }
+
+  // Dart 侧已经把颜色算好了（0xAARRGGBB 的整数），这里转成 CSS 色值。
+  // 优先用它，保证图谱和 App 内的圆点颜色完全一致。
+  function intColor(v) {
+    if (typeof v !== "number" || !isFinite(v)) return null;
+    var s = (v >>> 0).toString(16);
+    if (s.length < 6) return null;
+    return "#" + s.slice(-6).toUpperCase();
   }
 
   var cy = cytoscape({
@@ -376,7 +386,7 @@
       });
 
       var nodes = rawNodes.map(function (n) {
-        var col = nameColor(n.label, n.type);
+        var col = intColor(n.color) || nameColor(n.label, n.type);
         var deg = degree[n.id] || 0;
         var size = Math.max(14, Math.min(38, 14 + deg * 4.5));
         var el = {

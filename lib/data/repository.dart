@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../util/ids.dart';
 import '../util/text_match.dart';
+import 'color_registry.dart';
 import 'database.dart';
 import 'models.dart';
 
@@ -99,14 +100,18 @@ class GraphRepository {
     for (final id in connected) {
       final e = entities[id]!;
       final p = positions[id];
-      nodes.add(GraphNode(
+      final node = GraphNode(
         e.id,
         e.name,
         e.type,
         FactStatus.confirmed,
         x: (p?['x'] as num?)?.toDouble(),
         y: (p?['y'] as num?)?.toDouble(),
-      ).toJson());
+      ).toJson();
+      // 颜色在 Dart 侧统一算好带给页面，保证图谱和 App 内圆点颜色一致，
+      // 也避免页面自己那套算法和这边越走越远
+      node['color'] = ColorRegistry.instance.colorOf(e.name, e.type);
+      nodes.add(node);
     }
 
     final edges = <Map<String, Object?>>[];

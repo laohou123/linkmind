@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import 'asr/local_asr.dart';
+import 'data/color_registry.dart';
 import 'data/models.dart';
 import 'data/repository.dart';
 import 'data/settings.dart';
@@ -92,6 +93,8 @@ class AppState extends ChangeNotifier {
   // ------------------------------------------------------------------ 初始化
 
   Future<void> init() async {
+    // 先把颜色记忆读进来，图谱渲染和面板圆点都要用
+    await ColorRegistry.instance.load();
     settings = await SettingsStore.instance.load();
     tts = SettingsStore.instance.ttsCached;
     asr = SettingsStore.instance.asrCached;

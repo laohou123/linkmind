@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12（API 31）起，启动画面由系统接管：
+         系统会自己铺一层背景，并给应用图标垫一块默认白色底板，
+         这就是那圈白的来源。这里把两层都改成 App 的深色。 -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <!-- 整块启动画面的底色 -->
+        <item name="android:windowSplashScreenBackground">@color/launch_bg</item>
+        <!-- 图标后面那圈底板（默认白），换成同色就看不见了 -->
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/launch_bg</item>
+        <item name="android:windowBackground">@drawable/launch_background</item>
+    </style>
+
+    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">@color/launch_bg</item>
+    </style>
+</resources>

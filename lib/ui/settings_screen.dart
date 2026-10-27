@@ -31,7 +31,7 @@ enum ModelKind {
 
 /// 设置首页：三类模型各一个入口，点进去单独配
 /// 一处维护，别再出现「设置页写 1.3.1、安装包是 1.12.x」这种事
-const appVersion = '1.13.2';
+const appVersion = '1.13.3';
 
 class SettingsScreen extends StatelessWidget {
   final AppState state;

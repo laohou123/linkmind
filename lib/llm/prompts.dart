@@ -14,16 +14,18 @@ class Prompts {
 - "add"：用户在陈述一个关系事实（例如"主机房交换机电源来自东北角配电箱"）
 - "query"：用户在提问（例如"主机房交换机电源从哪来"）
 - "retire"：用户要求某条关系作废/取消（例如"主机房交换机电源不再来自东北角配电箱"、"这条记录删掉"）
+- "rename"：用户要求给某个设备改名字（例如"把8#布袋除尘改为8#布袋除尘设备箱"、"修改8#布袋除尘为8#布袋除尘设备箱"、"X改名叫Y"、"X的名字改成Y"）
 - "unclear"：信息不足或无法判断
 
 二、输出格式
 {
-  "intent": "add" | "query" | "retire" | "unclear",
+  "intent": "add" | "query" | "retire" | "rename" | "unclear",
   "facts": [
     {"subject": "名称原文", "subject_type": "类型", "predicate": "关系code", "object": "名称原文", "object_type": "类型", "cable": "线缆类型或编号，没有就留空"}
   ],
   "query": {"entity": "名称原文", "predicate": "关系code或空字符串"},
   "retire": {"subject": "名称原文", "predicate": "关系code或空字符串", "object": "名称原文或空字符串"},
+  "rename": {"from": "原来的名字", "to": "要改成的新名字"},
   "reason": "一句话中文说明你的判断"
 }
 
@@ -65,6 +67,13 @@ class Prompts {
    · 只说线缆、看不出两端的设备（如"这条光纤断了"）→ intent 填 "unclear"。
    绝对不要把"设备名+光纤"这种整串当实体名（例如不要出现"主机房交换机1#口光纤"这个节点）。
 9. 方向仍然按"主语=被描述的对象、宾语=来源/目标"来填，箭头方向由程序处理，你不需要反转。
+10. 判断为 rename 时填 rename 字段：from 是设备原来的名字，to 是要改成的新名字。两个都必填。
+    rename 只改名字，不动任何关系，也不要生成 facts。
+    注意区分：
+    · "把 A 改名为 B"、"A 的名字改成 B"、"修改 A 为 B" → rename
+    · "A 的电源改到 B"、"A 不再来自 B" → 这是在改关系，属于 retire 或 add，不是 rename
+    · "A 就是 B"（说两台设备其实是同一台）→ 这是合并，填 add 并把 A 和 B 作为一条关系的两端不方便表达时，
+      直接用 rename：from 填被合并的那个旧名，to 填要保留的名字。
 ''';
 
   static const String answerSystem = '''

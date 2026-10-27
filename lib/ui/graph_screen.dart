@@ -162,7 +162,7 @@ class _GraphScreenState extends State<GraphScreen> {
   }
 
   bool _hasTransientPanel(AppState s) {
-    if (s.showConfirm || s.showRetireConfirm) return false;
+    if (s.showConfirm || s.showRetireConfirm || s.showRenameConfirm) return false;
     return s.answer != null ||
         s.errorText != null ||
         s.panelEntity != null ||
@@ -175,6 +175,16 @@ class _GraphScreenState extends State<GraphScreen> {
   }
 
   Widget _buildPanel(AppState s) {
+    if (s.showRenameConfirm) {
+      return RenamePanel(
+        fromName: s.pendingRenameFrom,
+        toName: s.pendingRenameTo,
+        factCount: s.pendingRenameFactCount,
+        working: s.busy,
+        onConfirm: s.confirmRename,
+        onCancel: s.cancelRename,
+      );
+    }
     if (s.showRetireConfirm && s.pendingRetire.isNotEmpty) {
       return RetirePanel(
         facts: s.pendingRetire,

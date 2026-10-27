@@ -494,6 +494,140 @@ class _ConfirmPanelState extends State<ConfirmPanel> {
 }
 
 /// 作废确认：动手前必须把"要作废哪几条"摆出来
+/// 改名确认：把「旧名 → 新名」摆给用户看清楚，点了确认才改。
+/// 改名不动任何关系，所以这里重点是让用户核对改的是不是这台设备。
+class RenamePanel extends StatelessWidget {
+  final String fromName;
+  final String toName;
+  final int factCount;
+  final VoidCallback onConfirm;
+  final VoidCallback onCancel;
+  final bool working;
+
+  const RenamePanel({
+    super.key,
+    required this.fromName,
+    required this.toName,
+    required this.onConfirm,
+    required this.onCancel,
+    this.factCount = 0,
+    this.working = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return BottomPanel(
+      accent: AppColors.accent,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.edit, size: 16, color: AppColors.accent),
+              const SizedBox(width: 6),
+              const Text('要改这个设备的名字？',
+                  style: TextStyle(
+                      fontSize: 13, color: AppColors.accent, letterSpacing: .5)),
+              const Spacer(),
+              GestureDetector(
+                onTap: onCancel,
+                child: const Icon(Icons.close, size: 18, color: AppColors.textFaint),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceAlt,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Row(
+              children: [
+                Flexible(
+                  child: Text(
+                    fromName,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: AppColors.textSub,
+                      decoration: TextDecoration.lineThrough,
+                      decorationColor: AppColors.textFaint,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                const Icon(Icons.arrow_forward, size: 14, color: AppColors.textFaint),
+                const SizedBox(width: 10),
+                Flexible(
+                  child: Text(
+                    toName,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: AppColors.text,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            factCount > 0
+                ? '它参与的 $factCount 条关系会跟着显示新名字，记录内容一条都不变。\n'
+                    '旧名字会留作别名，以后说旧名字也能对上。'
+                : '旧名字会留作别名，以后说旧名字也能对上。',
+            style: const TextStyle(fontSize: 10.5, color: AppColors.textFaint, height: 1.5),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: working ? null : onCancel,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.textSub,
+                    side: const BorderSide(color: AppColors.border),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text('再想想'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                flex: 2,
+                child: FilledButton(
+                  onPressed: working ? null : onConfirm,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.accent,
+                    foregroundColor: const Color(0xFF04202E),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: working
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('确认改名',
+                          style: TextStyle(fontWeight: FontWeight.w600)),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class RetirePanel extends StatelessWidget {
   final List<FactView> facts;
   final VoidCallback onConfirm;

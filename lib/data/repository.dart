@@ -29,6 +29,44 @@ class CommitResult {
   });
 }
 
+enum RenameStatus {
+  /// 改成功了
+  ok,
+
+  /// 库里找不到这个名字的设备
+  notFound,
+
+  /// 新名字和旧名字一样，没什么可改的
+  noop,
+
+  /// 新名字已经被另一个设备占用了，那是合并不是改名
+  conflict,
+}
+
+/// 改名结果。改名不动任何关系，关系的两端存的是实体 id，
+/// 所以改完名字，图上和问答里显示的名字会一起变。
+class RenameResult {
+  final RenameStatus status;
+  final String? entityId;
+  final String oldName;
+  final String newName;
+
+  /// 冲突时占用新名字的那个设备
+  final String? conflictName;
+
+  /// 这个设备当前参与的关系条数，用于提示用户影响范围
+  final int factCount;
+
+  const RenameResult({
+    required this.status,
+    required this.oldName,
+    required this.newName,
+    this.entityId,
+    this.conflictName,
+    this.factCount = 0,
+  });
+}
+
 /// 所有数据读写都在这里。UI 与模型层都不直接碰 SQL。
 class GraphRepository {
   static final GraphRepository instance = GraphRepository._();
@@ -503,6 +541,111 @@ class GraphRepository {
       );
       await _audit(txn, 'fact', factId, 'retire', fact.originalText, null, now);
     });
+  }
+
+  /// 给设备改名：只改显示名，不动任何关系。
+  ///
+  /// 关系的两端存的是实体 id，所以改完名字，图上和问答里显示的名字会一起变，
+  /// 历史事实和审计日志都不受影响。旧名字会记进别名，以后说旧名字还能对上。
+  /// 只做检查、不写库。给确认面板用：先把「要改哪个设备、改成什么、影响多少条关系」
+  /// 摆给用户看清楚了，用户点确认才真正执行。
+  Future<RenameResult> previewRename({
+    required String fromName,
+    required String toName,
+  }) async {
+    final from = fromName.trim();
+    final to = toName.trim();
+    if (to.isEmpty) {
+      return RenameResult(status: RenameStatus.noop, oldName: from, newName: to);
+    }
+
+    final target = await bestMatch(from);
+    if (target == null || target.score < 0.55) {
+      return RenameResult(status: RenameStatus.notFound, oldName: from, newName: to);
+    }
+    final entity = target.entity;
+    if (entity.name == to) {
+      return RenameResult(
+        status: RenameStatus.noop,
+        oldName: entity.name,
+        newName: to,
+        entityId: entity.id,
+      );
+    }
+
+    final db = await AppDatabase.instance();
+
+    // 影响范围：这个设备当前参与的有效关系条数
+    final relCount = Sqflite.firstIntValue(await db.rawQuery(
+          'SELECT COUNT(*) FROM facts WHERE (subjectId = ? OR objectId = ?) '
+          "AND status = 'confirmed'",
+          [entity.id, entity.id],
+        )) ??
+        0;
+
+    // 新名字已经被另一个设备占用 —— 那是合并，不是改名，别悄悄把两台并成一台
+    final clash = await bestMatch(to);
+    if (clash != null && clash.entity.id != entity.id && clash.score >= 0.86) {
+      return RenameResult(
+        status: RenameStatus.conflict,
+        oldName: entity.name,
+        newName: to,
+        entityId: entity.id,
+        conflictName: clash.entity.name,
+        factCount: relCount,
+      );
+    }
+
+    return RenameResult(
+      status: RenameStatus.ok,
+      oldName: entity.name,
+      newName: to,
+      entityId: entity.id,
+      factCount: relCount,
+    );
+  }
+
+  /// 真正执行改名。调用前一般会先跑一次 previewRename 给人确认。
+  Future<RenameResult> renameEntity({
+    required String fromName,
+    required String toName,
+  }) async {
+    final preview = await previewRename(fromName: fromName, toName: toName);
+    // 检查没过（找不到 / 没变化 / 名字撞车）就不动库
+    if (preview.status != RenameStatus.ok) return preview;
+
+    final entityId = preview.entityId!;
+    final oldName = preview.oldName;
+    final to = preview.newName;
+    final db = await AppDatabase.instance();
+    final now = nowMs();
+
+    await db.transaction((txn) async {
+      final rows = await txn.query('entities', where: 'id = ?', whereArgs: [entityId]);
+      if (rows.isEmpty) return;
+      final entity = EntityRec.fromMap(rows.first);
+
+      // 旧名字记进别名，以后用户说旧名字也能对上
+      final aliases = <String>{};
+      aliases.addAll(_aliases(entity.aliases));
+      aliases.add(oldName);
+      aliases.remove(to);
+
+      await txn.update(
+        'entities',
+        {
+          'name': to,
+          'normalizedName': TextMatch.normalize(to),
+          'aliases': jsonEncode(aliases.toList()),
+          'updatedAt': now,
+        },
+        where: 'id = ?',
+        whereArgs: [entityId],
+      );
+      await _audit(txn, 'entity', entityId, 'rename', oldName, to, now);
+    });
+
+    return preview;
   }
 
   // ---------------------------------------------------------------- 查询

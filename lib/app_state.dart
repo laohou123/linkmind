@@ -52,6 +52,13 @@ class AppState extends ChangeNotifier {
   List<FactView> pendingRetire = const [];
   bool showRetireConfirm = false;
 
+  /// 待确认的改名：把哪个设备改成什么名字，以及匹配到的实体
+  String pendingRenameFrom = '';
+  String pendingRenameTo = '';
+  MatchCandidate? pendingRenameTarget;
+  int pendingRenameFactCount = 0;
+  bool showRenameConfirm = false;
+
   List<String> highlightIds = const [];
   int highlightRevision = 0;
   String? focusNodeId;
@@ -145,6 +152,11 @@ class AppState extends ChangeNotifier {
     pendingRetire = const [];
     showConfirm = false;
     showRetireConfirm = false;
+    pendingRenameFrom = '';
+    pendingRenameTo = '';
+    pendingRenameTarget = null;
+    pendingRenameFactCount = 0;
+    showRenameConfirm = false;
 
     if (!settings.isReady) {
       errorText = '还没配置模型。点右上角设置 → 大语言模型，填入 Base URL、API Key 和模型名。';
@@ -194,6 +206,55 @@ class AppState extends ChangeNotifier {
           } else {
             pendingRetire = facts;
             showRetireConfirm = true;
+          }
+          break;
+
+        case 'rename':
+          statusText = '正在核对设备…';
+          notifyListeners();
+          final from = parsed.renameFrom ?? '';
+          final to = parsed.renameTo ?? '';
+          final preview = await repo.previewRename(fromName: from, toName: to);
+          statusText = null;
+
+          switch (preview.status) {
+            case RenameStatus.notFound:
+              answer = AnswerResult(
+                text: '库里没有叫「${preview.oldName}」的设备，改不了名字。\n'
+                    '先把它录进来（比如记一条它的关系），再来改名。',
+                isEmpty: true,
+              );
+              answerRevision++;
+              _maybeSpeak(answer!.text);
+              break;
+            case RenameStatus.noop:
+              answer = AnswerResult(
+                text: preview.entityId == null
+                    ? '没听清要改成什么名字。试着说「把 xxx 改名为 yyy」。'
+                    : '「${preview.oldName}」本来就叫这个名字，不用改。',
+                isEmpty: true,
+              );
+              answerRevision++;
+              _maybeSpeak(answer!.text);
+              break;
+            case RenameStatus.conflict:
+              answer = AnswerResult(
+                text: '库里已经有一个叫「${preview.conflictName}」的设备了。\n'
+                    '直接改名会让两台设备重名，所以我没动。\n'
+                    '如果你想说的是「${preview.oldName}」和「${preview.newName}」其实是同一台，'
+                    '那就是合并，不是改名——目前需要你在图上点开其中一个手动处理。',
+                isEmpty: true,
+              );
+              answerRevision++;
+              _maybeSpeak(answer!.text);
+              break;
+            case RenameStatus.ok:
+              final target = await repo.bestMatch(from);
+              pendingRenameFrom = preview.oldName;
+              pendingRenameTo = preview.newName;
+              pendingRenameTarget = target;
+              pendingRenameFactCount = preview.factCount;
+              showRenameConfirm = true;
           }
           break;
 
@@ -350,6 +411,70 @@ class AppState extends ChangeNotifier {
       statusText = null;
       notifyListeners();
     }
+  }
+
+  /// 确认改名。只改名字，关系一条都不动。
+  Future<void> confirmRename() async {
+    if (!showRenameConfirm) return;
+    final from = pendingRenameFrom;
+    final to = pendingRenameTo;
+    if (from.isEmpty || to.isEmpty) return;
+
+    busy = true;
+    statusText = '正在改名…';
+    notifyListeners();
+    try {
+      final result = await repo.renameEntity(fromName: from, toName: to);
+
+      showRenameConfirm = false;
+      pendingRenameFrom = '';
+      pendingRenameTo = '';
+      pendingRenameTarget = null;
+      pendingRenameFactCount = 0;
+
+      if (result.status != RenameStatus.ok) {
+        errorText = '改名没成功，请重试或换个说法。';
+        busy = false;
+        statusText = null;
+        notifyListeners();
+        return;
+      }
+
+      await refreshGraph();
+
+      // 改完把镜头挪到这个节点上，让用户一眼看到变化
+      if (result.entityId != null) {
+        focusNodeId = result.entityId;
+        focusRevision++;
+        highlightIds = const [];
+        highlightRevision++;
+      }
+
+      final buffer = StringBuffer();
+      buffer.write('已经把「${result.oldName}」改名为「${result.newName}」。');
+      if (result.factCount > 0) {
+        buffer.write('\n它参与的 ${result.factCount} 条关系会跟着显示新名字，记录内容不变。');
+      }
+      buffer.write('\n以后说旧名字「${result.oldName}」我也认。');
+      answer = AnswerResult(text: buffer.toString());
+      answerRevision++;
+      _maybeSpeak(answer!.text);
+    } catch (e) {
+      errorText = '改名失败：$e';
+    } finally {
+      busy = false;
+      statusText = null;
+      notifyListeners();
+    }
+  }
+
+  void cancelRename() {
+    showRenameConfirm = false;
+    pendingRenameFrom = '';
+    pendingRenameTo = '';
+    pendingRenameTarget = null;
+    pendingRenameFactCount = 0;
+    notifyListeners();
   }
 
   void cancelDrafts() {

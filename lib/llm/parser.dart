@@ -7,7 +7,7 @@ import '../data/settings.dart';
 
 /// 模型解析结果
 class ParsedInput {
-  final String intent; // add / query / retire / unclear
+  final String intent; // add / query / retire / rename / unclear
   final List<FactDraft> facts;
   final String? queryEntity;
   final String? queryPredicate;
@@ -16,6 +16,10 @@ class ParsedInput {
   final String? retireSubject;
   final String? retirePredicate;
   final String? retireObject;
+
+  /// rename 专用：把哪个设备改成什么名字
+  final String? renameFrom;
+  final String? renameTo;
   final String reason;
 
   const ParsedInput({
@@ -26,6 +30,8 @@ class ParsedInput {
     this.retireSubject,
     this.retirePredicate,
     this.retireObject,
+    this.renameFrom,
+    this.renameTo,
     this.reason = '',
   });
 }
@@ -46,7 +52,60 @@ class FactParser {
     if (json == null) {
       throw const LlmException('模型没有按格式返回，再试一次通常就好了。', retryable: true);
     }
-    return _fromJson(json, input);
+    final result = _fromJson(json, input);
+
+    // 模型偶尔把「改名」判成提问（"修改A为B" 看着像在问什么）。
+    // 这种句式很固定，本地认一次兜底，不依赖模型这次的判断。
+    if (result.intent == 'query' || result.intent == 'unclear') {
+      final renamed = _renameFromText(input);
+      if (renamed != null) {
+        return ParsedInput(
+          intent: 'rename',
+          renameFrom: renamed[0],
+          renameTo: renamed[1],
+          reason: '按改名句式识别',
+        );
+      }
+    }
+    return result;
+  }
+
+  /// 像「把 A 改名为 B」「修改 A 为 B」这类句式
+  static final List<RegExp> _renamePatterns = [
+    RegExp(r'^把\s*(.+?)\s*(?:改名为|改叫|改成|改为|修改为|更名为)\s*(.+?)\s*[。！？!?]?$'),
+    RegExp(r'^将\s*(.+?)\s*(?:改名为|改叫|改成|改为|修改为|更名为)\s*(.+?)\s*[。！？!?]?$'),
+    RegExp(r'^修改\s*(.+?)\s*为\s*(.+?)\s*[。！？!?]?$'),
+    RegExp(r'^(.+?)\s*(?:改名为|改名叫|改叫|更名为)\s*(.+?)\s*[。！？!?]?$'),
+    RegExp(r'^(.+?)\s*的名字\s*(?:改成|改为|修改为)\s*(.+?)\s*[。！？!?]?$'),
+  ];
+
+  /// 出现这些词，说的是改关系（"电源改到别处"），不是改名字
+  static const List<String> _relationHints = [
+    '电源', '供电', '网线', '光纤', '电缆', '线缆', '来自', '接到', '连到',
+    '连接', '上联', '位于', '属于', '控制', '信号', '改到', '改接',
+  ];
+
+  /// 命中改名句式就返回 [原名, 新名]，否则 null
+  static List<String>? _renameFromText(String raw) {
+    final text = raw.trim();
+    if (text.isEmpty) return null;
+
+    // 提到关系词，说的是"改关系"，交给 retire / add 处理
+    for (final hint in _relationHints) {
+      if (text.contains(hint)) return null;
+    }
+
+    for (final p in _renamePatterns) {
+      final m = p.firstMatch(text);
+      if (m == null) continue;
+      final from = m.group(1)?.trim() ?? '';
+      final to = m.group(2)?.trim() ?? '';
+      if (from.isEmpty || to.isEmpty || from == to) continue;
+      // 名字正常不会这么长，太长说明整句话被吞进来了，不靠谱
+      if (from.length > 30 || to.length > 30) continue;
+      return [from, to];
+    }
+    return null;
   }
 
   /// 模型偶尔会包 ```json 代码块，或者前后多说一句话，这里做容错
@@ -117,6 +176,42 @@ class FactParser {
           reason: reason,
         );
       }
+    }
+
+    // 改名：只改名字，不动关系，所以单独走一路，不进 facts
+    if (intent == 'rename') {
+      final r = json['rename'];
+      String? from;
+      String? to;
+      if (r is Map) {
+        from = (r['from'] as String?)?.trim();
+        to = (r['to'] as String?)?.trim();
+      }
+      // 模型偶尔把改名塞进 facts：主宾填了名但没有谓词，多半是改名
+      if ((from == null || from.isEmpty || to == null || to.isEmpty) &&
+          list is List &&
+          list.isNotEmpty) {
+        final first = list.first;
+        if (first is Map) {
+          from ??= (first['subject'] as String?)?.trim();
+          to ??= (first['object'] as String?)?.trim();
+        }
+      }
+      if (from != null && from.isNotEmpty && to != null && to.isNotEmpty) {
+        return ParsedInput(
+          intent: 'rename',
+          renameFrom: from,
+          renameTo: to,
+          reason: reason,
+        );
+      }
+      // 名字没拿全，退回按提问处理，至少能给点反馈
+      return ParsedInput(
+        intent: 'query',
+        queryEntity: from ?? input,
+        queryPredicate: null,
+        reason: reason.isEmpty ? '没识别出要改成什么名字，按提问处理' : reason,
+      );
     }
 
     final drafts = <FactDraft>[];

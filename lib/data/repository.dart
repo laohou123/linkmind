@@ -331,16 +331,24 @@ class GraphRepository {
 
   /// 确认后写入。整段在一个事务里，任何一步失败都不留半条数据。
   /// 冲突策略：同主语 + 同谓词下若已有不同的宾语，旧事实置为 superseded 并留档。
+  /// createNewSubject / createNewObject：
+  /// 用户在确认卡片上明确「不合并」时置 true —— 此时即使名字和库里某台设备
+  /// 相似度很高，也必须新建。以前这里不看用户的选择，自己又按 0.86 的阈值
+  /// 并了一次，于是出现「没勾合并，保存后还是连到了旧设备」。
   Future<CommitResult> commitDraft(
     FactDraft draft, {
     String? subjectId,
     String? objectId,
+    bool createNewSubject = false,
+    bool createNewObject = false,
   }) async {
     final db = await AppDatabase.instance();
     return db.transaction<CommitResult>((txn) async {
       final now = nowMs();
-      final subject = await _resolveOrCreate(txn, draft.subjectName, draft.subjectType, now, subjectId);
-      final object = await _resolveOrCreate(txn, draft.objectName, draft.objectType, now, objectId);
+      final subject = await _resolveOrCreate(txn, draft.subjectName, draft.subjectType, now,
+          forcedId: subjectId, createNew: createNewSubject);
+      final object = await _resolveOrCreate(txn, draft.objectName, draft.objectType, now,
+          forcedId: objectId, createNew: createNewObject);
 
       // 自己指向自己的关系没有意义，只会让图上多一个绕圈的箭头。
       // 出现这种情况一定是两端被合并到了同一个实体（多半是名字太像），
@@ -409,18 +417,26 @@ class GraphRepository {
     DatabaseExecutor db,
     String name,
     String type,
-    int now, [
+    int now, {
     String? forcedId,
-  ]) async {
+    bool createNew = false,
+  }) async {
     if (forcedId != null) {
       final rows = await db.query('entities', where: 'id = ?', whereArgs: [forcedId]);
       if (rows.isNotEmpty) return EntityRec.fromMap(rows.first);
     }
-    final candidates = await _candidates(db, name, limit: 1);
-    if (candidates.isNotEmpty &&
-        candidates.first.score >= 0.86 &&
-        EntityTypes.compatible(candidates.first.entity.type, type)) {
-      return candidates.first.entity;
+    if (!createNew) {
+      final candidates = await _candidates(db, name, limit: 1);
+      if (candidates.isNotEmpty &&
+          candidates.first.score >= 0.86 &&
+          EntityTypes.compatible(candidates.first.entity.type, type)) {
+        return candidates.first.entity;
+      }
+    } else {
+      // 新建前先把同名的别名从别的设备身上摘掉。
+      // 否则以后查询这个新名字时，旧设备还能靠别名拿到 0.98 分把它抢走，
+      // 用户看到的仍然是「还是连到了旧设备」。
+      await _detachAlias(db, name, now);
     }
     final created = EntityRec(
       id: newId(),
@@ -434,6 +450,28 @@ class GraphRepository {
         conflictAlgorithm: ConflictAlgorithm.replace);
     await _audit(db, 'entity', created.id, 'create', null, created.name, now);
     return created;
+  }
+
+  /// 把这个名字从其它设备的别名表里摘掉。
+  /// 用在「用户明确要新建一台叫这个名字的设备」时：名字既然归了新设备，
+  /// 旧设备就不能再拿它当别名去抢匹配。
+  Future<void> _detachAlias(DatabaseExecutor db, String name, int now) async {
+    final target = TextMatch.normalize(name);
+    if (target.isEmpty) return;
+    final rows = await db.query('entities', where: 'deletedAt IS NULL');
+    for (final row in rows) {
+      final e = EntityRec.fromMap(row);
+      final aliases = _aliases(e.aliases);
+      if (aliases.isEmpty) continue;
+      final kept = aliases.where((a) => TextMatch.normalize(a) != target).toList();
+      if (kept.length == aliases.length) continue;
+      await db.update(
+        'entities',
+        {'aliases': jsonEncode(kept), 'updatedAt': now},
+        where: 'id = ?',
+        whereArgs: [e.id],
+      );
+    }
   }
 
   Future<void> _audit(

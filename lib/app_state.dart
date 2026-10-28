@@ -333,6 +333,10 @@ class AppState extends ChangeNotifier {
           r.draft,
           subjectId: useSub[i] ? r.subjectMatch?.entity.id : null,
           objectId: useObj[i] ? r.objectMatch?.entity.id : null,
+          // 有候选但没勾选 = 用户要求「当成新设备」，必须真的新建，
+          // 不能再让写入层按相似度自己并一次
+          createNewSubject: !useSub[i] && r.subjectMatch != null,
+          createNewObject: !useObj[i] && r.objectMatch != null,
         ));
       }
 

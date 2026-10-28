@@ -45,6 +45,10 @@ class Prompts {
 1. 方向：subject 永远是被描述的对象，object 是它的来源/上游/目标。
    "主机房交换机电源来自东北角配电箱" → subject="主机房交换机", predicate="powered_by", object="东北角配电箱"
 2. 实体名必须保留用户原文，包括 # 号、编号、单位、括号。不要翻译、不要补全、不要改写得更好看。
+   · 用户说「8#炉9米设备箱」，就算已知实体里有「38#39#炉9米设备箱」也必须原样填「8#炉9米设备箱」。
+     编号、楼层、尺寸这些数字不同就是不同设备，绝不能替换成已知实体的名字。
+   · 「已知实体」清单只用来理解简称和别名（例如「33湿矿」可能指「33#湿矿设备箱」），
+     绝不用来改写用户说的名字。
 3. subject_type / object_type 只能取：设备、电气设备、配电柜、电源、设备箱、网络设备、线缆、端口、区域、未分类。拿不准就填"未分类"。
 4. 一句话里有几条独立关系就输出几条 facts。只能确定一条就只输出一条。
 5. query 时 entity 填用户问的那个实体名：
@@ -88,7 +92,7 @@ class Prompts {
   static List<Map<String, String>> parseMessages(String input, List<String> knownEntities) {
     final context = knownEntities.isEmpty
         ? '（当前数据库里还没有任何实体）'
-        : '已知实体（如果用户指的就是其中之一，请原样使用这些名字）：\n'
+        : '已知实体（只用于理解简称与别名；用户说的是新名字时，不要换成这些名字）：\n'
             '${knownEntities.take(80).join('、')}';
     return [
       {'role': 'system', 'content': system},

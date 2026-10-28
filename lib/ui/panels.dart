@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app_state.dart';
 import '../data/models.dart';
+import '../util/text_match.dart';
 import 'theme.dart';
 
 /// 底部浮层容器：圆角、半透明、最高占屏 46%，内容可滚动，不长期遮挡图谱
@@ -370,6 +371,7 @@ class _ConfirmPanelState extends State<ConfirmPanel> {
             if (r.subjectMatch != null)
               _mergeRow(
                 name: r.subjectMatch!.entity.name,
+                mention: d.subjectName,
                 score: r.subjectMatch!.score,
                 value: widget.useExistingSubject[i],
                 onChanged: (v) => widget.onToggle(i, subject: v),
@@ -378,6 +380,7 @@ class _ConfirmPanelState extends State<ConfirmPanel> {
             if (r.objectMatch != null)
               _mergeRow(
                 name: r.objectMatch!.entity.name,
+                mention: d.objectName,
                 score: r.objectMatch!.score,
                 value: widget.useExistingObject[i],
                 onChanged: (v) => widget.onToggle(i, object: v),
@@ -423,31 +426,46 @@ class _ConfirmPanelState extends State<ConfirmPanel> {
     return '类型不一样：已有「$existingType」，这次识别成「$newType」';
   }
 
+  /// 合并候选行。
+  ///
+  /// 名字跟库里那台完全一样时不提供勾选框：那种情况只能沿用，
+  /// 给一个勾选框却怎么点都没用，反而让人以为「没勾就不会并」。
   Widget _mergeRow({
     required String name,
+    required String mention,
     required double score,
     required bool value,
     required ValueChanged<bool> onChanged,
     String? note,
   }) {
+    final identical = TextMatch.normalize(mention) == TextMatch.normalize(name);
     final exact = score >= 0.86;
+    final title = identical
+        ? '库里已有同名设备「$name」，会沿用这台'
+        : (exact ? '几乎确定是「$name」，合并到它' : '可能是指「$name」，合并到它');
+    final hint = identical
+        ? null
+        : (value ? null : '不合并：会新建一台叫「$mention」的设备');
+
     return Padding(
       padding: const EdgeInsets.only(top: 4),
       child: InkWell(
-        onTap: () => onChanged(!value),
+        onTap: identical ? null : () => onChanged(!value),
         borderRadius: BorderRadius.circular(8),
         child: Row(
           children: [
             SizedBox(
               width: 24,
               height: 24,
-              child: Checkbox(
-                value: value,
-                onChanged: (v) => onChanged(v ?? false),
-                side: const BorderSide(color: AppColors.textFaint),
-                activeColor: AppColors.accent,
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
+              child: identical
+                  ? const Icon(Icons.link, size: 14, color: AppColors.textFaint)
+                  : Checkbox(
+                      value: value,
+                      onChanged: (v) => onChanged(v ?? false),
+                      side: const BorderSide(color: AppColors.textFaint),
+                      activeColor: AppColors.accent,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
             ),
             const SizedBox(width: 6),
             Expanded(
@@ -455,9 +473,16 @@ class _ConfirmPanelState extends State<ConfirmPanel> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    exact ? '已有同名实体「$name」，合并到它' : '可能是指「$name」，合并到它',
+                    title,
                     style: const TextStyle(fontSize: 11, color: AppColors.textSub),
                   ),
+                  if (hint != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(hint,
+                          style: const TextStyle(
+                              fontSize: 10, color: AppColors.accent, height: 1.4)),
+                    ),
                   if (note != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 2),

@@ -12,13 +12,53 @@
 
 ## 一、装到手机上
 
-APK 位置：`(https://github.com/laohou123/linkmind/releases)`
+### 下载
 
-1. 把 APK 传到安卓手机（微信/数据线/网盘都行）
-2. 手机上点开安装，遇到"未知来源"提示选择"仍要安装"
+安装包只发在 Releases 页面：
+
+**https://github.com/laohou123/linkmind/releases/latest**
+
+页面底部 Assets 里下载 `LinkMind-x.y.z-arm64-v8a.apk`。
+
+想装旧版本（比如新版有问题要退回）：打开 [全部版本](https://github.com/laohou123/linkmind/releases)，在列表里挑对应的 tag 再下载。
+
+仓库里**不含 APK**，只有 Releases 上的构建产物——这样 git clone 下来只有几百 KB，不会拖几百兆的二进制。只提供 `arm64-v8a` 一个架构（近五六年的安卓机都是这个），32 位老机型装不了。
+
+### 安装
+
+1. 手机浏览器打开上面的链接，点 APK 下载
+   （微信内置浏览器常拦截 APK，长按链接选「在浏览器打开」）
+2. 下载完点开，遇到「未知来源」「可能有害」之类的提示，选「仍要安装」/「继续安装」
 3. 打开后如果图是空的，先点右上角 **⚙ 设置** 填模型配置（见下一节）
 
-> 这个 APK 用的是调试签名，自己用、给同事用都没问题；要上应用商店才需要自己的 keystore。
+装过一次以后不用再来仓库：设置 → 关于 → **检查更新**，它自己去 Releases 比对版本号，有新版本就在 App 内下载，下完调起系统安装界面。
+
+### 关于签名
+
+这个 APK 用的是 **Android 调试证书**（`CN=Android Debug`），不是正式发布签名。
+
+```
+SHA-256  2d5ecf52655d612d4b4bcc01a27e8093fabdcdc204664498bae16c3b927c902f
+SHA-1    55c795bf6bae78a3e517aeffeb5d8075d4825f73
+```
+
+想自己核对下载到的包是不是官方那份：
+
+```bash
+apksigner verify --print-certs LinkMind-x.y.z-arm64-v8a.apk
+```
+
+签名是调试证书意味着三件事：
+
+| 影响 | 说明 |
+|---|---|
+| 能装能用 | 自己用、发给同事用都没问题，功能不受影响 |
+| 上不了应用商店 | 商店要求正式 keystore 签名的包 |
+| 和自编译包不通用 | 你在自己电脑上编译出来的包用的是**你那台机器**的调试证书，签名和官方包不同。装过官方包再装自编译包会提示「签名不一致」，必须先卸载——**卸载会连数据库一起删掉，先做好备份** |
+
+到目前为止发布的各个版本（1.13.1 起）用的是同一张调试证书，所以**可以直接覆盖升级，不需要卸载、数据也不动**。
+
+证书文件（`~/.android/debug.keystore`）不随仓库分发。想换成自己的正式签名，见「五、自己编译」结尾。
 
 ---
 
@@ -100,7 +140,7 @@ LLM 的服务商预设（点一下自动填地址和模型名）：
 
 全部在这台手机的本地 SQLite 里（`relation_graph.db`），不上传任何服务器。联网只用于调用你自己配置的模型接口。
 
-卸载 App 会连数据一起删掉。目前版本还没做导出备份——**重要数据请先在别的笔记里留一份底**（导出功能在 V2）。
+卸载 App 会连数据一起删掉。设置 → 数据 → **备份与恢复** 可以导出成一个 `.json`（实体、关系、节点坐标、模型配置全在里面），换手机或重装后能原样导回来，详见「七点五」。
 
 ---
 
@@ -109,18 +149,45 @@ LLM 的服务商预设（点一下自动填地址和模型名）：
 需要 Flutter SDK ≥ 3.24 和 Android SDK 34。
 
 ```bash
+git clone https://github.com/laohou123/linkmind.git
+cd linkmind
+
+scripts/fetch-native-libs.sh         # 必做，见下
 flutter pub get
-flutter build apk --release          # 产物在 build/app/outputs/flutter-apk/
-flutter build apk --debug            # 想快速试跑用这个
+flutter build apk --release --target-platform android-arm64
+# 产物：build/app/outputs/flutter-apk/app-release.apk
+```
+
+**`scripts/fetch-native-libs.sh` 不能跳过。** 离线语音识别用的 sherpa-onnx 原生库（4 个 `.so`，共 31MB）不在仓库里——放进去仓库会变成几百 MB。脚本从官方 release 下载并解压到 `android/app/src/main/jniLibs/arm64-v8a/`，直连失败会自动换镜像。
+
+跳过它也能编译通过，但离线语音识别在运行时会崩（缺 `.so`）。只调 UI、不碰语音的话可以先用这两条：
+
+```bash
+flutter build apk --debug            # 快速试跑
 flutter run                          # 插着手机直接运行
 ```
 
-iOS（需要 Mac + Xcode）：
+### iOS（需要 Mac + Xcode）
 
 ```bash
 flutter build ios --release
 # 再用 Xcode 打开 ios/Runner.xcworkspace 配置证书，Archive 出 IPA
 ```
+
+iOS 侧没有现成的 IPA 发布，证书和描述文件都得在 Xcode 里配自己的开发者账号。
+
+### 换成自己的签名
+
+`android/app/build.gradle.kts` 里 release 构建用的是调试签名（`signingConfig = signingConfigs.getByName("debug")`）。要发布自己的包，先造一张正式证书：
+
+```bash
+keytool -genkey -v -keystore ~/linkmind.jks -keyalg RSA -keysize 2048 \
+  -validity 10000 -alias linkmind
+```
+
+然后在 `android/app/build.gradle.kts` 里加 `signingConfigs.release` 指向它，把 release 的 `signingConfig` 改过去。密钥密码放 `key.properties` 并加进 `.gitignore`，别提交进仓库。
+
+换签名之后**和官方 Release 的包不通用**：装过官方包的手机会提示「签名不一致」，必须先卸载（数据会一起删掉，先备份）。
 
 > `android/gradle/wrapper/gradle-wrapper.properties` 里的 Gradle 分发地址已经换成腾讯云镜像，国内编译不会卡在下载上。如果镜像失效，改回 `https://services.gradle.org/distributions/gradle-9.3.1-bin.zip` 即可。
 
@@ -243,7 +310,6 @@ assets/graph/
 
 ## 八、已知限制
 
-- 没有导出/备份（V2）
 - 没有照片附件（V2）
 - 单机版，不支持多设备同步
 - 节点超过约 800 个时，全图模式会开始卡；应改用邻域视图（V2 提供切换）

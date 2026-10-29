@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../data/models.dart';
 import 'llm_client.dart';
+import 'name_guard.dart';
 import 'prompts.dart';
 import '../data/settings.dart';
 
@@ -140,6 +141,10 @@ class FactParser {
         entity = (q['entity'] as String?)?.trim();
         predicate = (q['predicate'] as String?)?.trim();
       }
+      // 模型可能把问的设备名换成库里相似的那台，按原话纠回来
+      if (entity != null && entity.isNotEmpty) {
+        entity = NameGuard.restore(entity, input);
+      }
       return ParsedInput(
         intent: 'query',
         queryEntity: (entity == null || entity.isEmpty) ? input : entity,
@@ -170,9 +175,11 @@ class FactParser {
       if (subject != null && subject.isNotEmpty) {
         return ParsedInput(
           intent: 'retire',
-          retireSubject: subject,
+          retireSubject: NameGuard.restore(subject, input),
           retirePredicate: (predicate == null || predicate.isEmpty) ? null : predicate,
-          retireObject: (object == null || object.isEmpty) ? null : object,
+          retireObject: (object == null || object.isEmpty)
+              ? null
+              : NameGuard.restore(object, input),
           reason: reason,
         );
       }
@@ -200,8 +207,8 @@ class FactParser {
       if (from != null && from.isNotEmpty && to != null && to.isNotEmpty) {
         return ParsedInput(
           intent: 'rename',
-          renameFrom: from,
-          renameTo: to,
+          renameFrom: NameGuard.restore(from, input),
+          renameTo: NameGuard.restore(to, input),
           reason: reason,
         );
       }
@@ -218,9 +225,13 @@ class FactParser {
     if (list is List) {
       for (final item in list) {
         if (item is! Map) continue;
-        final subject = (item['subject'] as String?)?.trim() ?? '';
-        final object = (item['object'] as String?)?.trim() ?? '';
-        if (subject.isEmpty || object.isEmpty) continue;
+        final subjectRaw = (item['subject'] as String?)?.trim() ?? '';
+        final objectRaw = (item['object'] as String?)?.trim() ?? '';
+        if (subjectRaw.isEmpty || objectRaw.isEmpty) continue;
+        // 关键一步：模型有可能把设备名换成库里相似的那台（编号被改掉），
+        // 这里以用户原话为准纠回来，避免把两台设备并成一台
+        final subject = NameGuard.restore(subjectRaw, input);
+        final object = NameGuard.restore(objectRaw, input);
         if (subject == object) continue;
         final code = (item['predicate'] as String?)?.trim() ?? '';
         var predicate = Predicate.fromCode(code);

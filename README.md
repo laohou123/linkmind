@@ -12,7 +12,7 @@
 
 ## 一、装到手机上
 
-APK 位置：`build/app/outputs/flutter-apk/app-release.apk`
+APK 位置：`[releases](https://github.com/laohou123/linkmind/releases)`
 
 1. 把 APK 传到安卓手机（微信/数据线/网盘都行）
 2. 手机上点开安装，遇到"未知来源"提示选择"仍要安装"
